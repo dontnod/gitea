@@ -39,10 +39,10 @@ var (
 			`0123456789`,
 			"form.password_digit_one",
 		},
-		"spec": {
-			` !"#$%&'()*+,-./:;<=>?@[\]^_{|}~` + "`",
-			"form.password_special_one",
-		},
+		//"spec": {
+		//	` !"#$%&'()*+,-./:;<=>?@[\]^_{|}~` + "`",
+		//	"form.password_special_one",
+		//},
 	}
 )
 
