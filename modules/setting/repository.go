@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	"code.gitea.io/gitea/modules/log"
-
-	"github.com/unknwon/com"
 )
 
 // enumerates all the policy repository creating
@@ -44,6 +42,8 @@ var (
 		DefaultRepoUnits                        []string
 		PrefixArchiveFiles                      bool
 		DisableMirrors                          bool
+		DisableMigrations                       bool
+		DisableStars                            bool `ini:"DISABLE_STARS"`
 		DefaultBranch                           string
 		AllowAdoptionOfUnadoptedRepositories    bool
 		AllowDeleteOfUnadoptedRepositories      bool
@@ -58,7 +58,7 @@ var (
 		Upload struct {
 			Enabled      bool
 			TempPath     string
-			AllowedTypes []string `delim:"|"`
+			AllowedTypes string
 			FileMaxSize  int64
 			MaxFiles     int
 		} `ini:"-"`
@@ -84,6 +84,10 @@ var (
 		Issue struct {
 			LockReasons []string
 		} `ini:"repository.issue"`
+
+		Release struct {
+			AllowedTypes string
+		} `ini:"repository.release"`
 
 		Signing struct {
 			SigningKey        string
@@ -139,7 +143,7 @@ var (
 		MaxCreationLimit:                        -1,
 		MirrorQueueLength:                       1000,
 		PullRequestQueueLength:                  1000,
-		PreferredLicenses:                       []string{"Apache License 2.0,MIT License"},
+		PreferredLicenses:                       []string{"Apache License 2.0", "MIT License"},
 		DisableHTTPGit:                          false,
 		AccessControlAllowOrigin:                "",
 		UseCompatSSHURI:                         false,
@@ -150,6 +154,8 @@ var (
 		DefaultRepoUnits:                        []string{},
 		PrefixArchiveFiles:                      true,
 		DisableMirrors:                          false,
+		DisableMigrations:                       false,
+		DisableStars:                            false,
 		DefaultBranch:                           "master",
 
 		// Repository editor settings
@@ -165,13 +171,13 @@ var (
 		Upload: struct {
 			Enabled      bool
 			TempPath     string
-			AllowedTypes []string `delim:"|"`
+			AllowedTypes string
 			FileMaxSize  int64
 			MaxFiles     int
 		}{
 			Enabled:      true,
 			TempPath:     "data/tmp/uploads",
-			AllowedTypes: []string{},
+			AllowedTypes: "",
 			FileMaxSize:  3,
 			MaxFiles:     5,
 		},
@@ -213,6 +219,12 @@ var (
 			LockReasons: strings.Split("Too heated,Off-topic,Spam,Resolved", ","),
 		},
 
+		Release: struct {
+			AllowedTypes string
+		}{
+			AllowedTypes: "",
+		},
+
 		// Signing settings
 		Signing: struct {
 			SigningKey        string
@@ -239,19 +251,14 @@ var (
 )
 
 func newRepository() {
-	homeDir, err := com.HomeDir()
-	if err != nil {
-		log.Fatal("Failed to get home directory: %v", err)
-	}
-	homeDir = strings.Replace(homeDir, "\\", "/", -1)
-
+	var err error
 	// Determine and create root git repository path.
 	sec := Cfg.Section("repository")
 	Repository.DisableHTTPGit = sec.Key("DISABLE_HTTP_GIT").MustBool()
 	Repository.UseCompatSSHURI = sec.Key("USE_COMPAT_SSH_URI").MustBool()
 	Repository.MaxCreationLimit = sec.Key("MAX_CREATION_LIMIT").MustInt(-1)
 	Repository.DefaultBranch = sec.Key("DEFAULT_BRANCH").MustString(Repository.DefaultBranch)
-	RepoRootPath = sec.Key("ROOT").MustString(path.Join(homeDir, "gitea-repositories"))
+	RepoRootPath = sec.Key("ROOT").MustString(path.Join(AppDataPath, "gitea-repositories"))
 	forcePathSeparator(RepoRootPath)
 	if !filepath.IsAbs(RepoRootPath) {
 		RepoRootPath = filepath.Join(AppWorkPath, RepoRootPath)

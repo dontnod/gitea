@@ -20,16 +20,19 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"code.gitea.io/gitea/modules/generate"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/user"
+	"code.gitea.io/gitea/modules/util"
 
+	jsoniter "github.com/json-iterator/go"
 	shellquote "github.com/kballard/go-shellquote"
 	"github.com/unknwon/com"
+	gossh "golang.org/x/crypto/ssh"
 	ini "gopkg.in/ini.v1"
-	"strk.kbt.io/projects/go/libravatar"
 )
 
 // Scheme describes protocol types
@@ -59,20 +62,36 @@ const (
 const (
 	ImageCaptcha = "image"
 	ReCaptcha    = "recaptcha"
+	HCaptcha     = "hcaptcha"
 )
 
 // settings
 var (
-	// AppVer settings
-	AppVer         string
-	AppBuiltWith   string
-	AppName        string
-	AppURL         string
-	AppSubURL      string
-	AppSubURLDepth int // Number of slashes
-	AppPath        string
-	AppDataPath    string
-	AppWorkPath    string
+	// AppVer is the version of the current build of Gitea. It is set in main.go from main.Version.
+	AppVer string
+	// AppBuiltWith represents a human readable version go runtime build version and build tags. (See main.go formatBuiltWith().)
+	AppBuiltWith string
+	// AppStartTime store time gitea has started
+	AppStartTime time.Time
+	// AppName is the Application name, used in the page title.
+	// It maps to ini:"APP_NAME"
+	AppName string
+	// AppURL is the Application ROOT_URL. It always has a '/' suffix
+	// It maps to ini:"ROOT_URL"
+	AppURL string
+	// AppSubURL represents the sub-url mounting point for gitea. It is either "" or starts with '/' and ends without '/', such as '/{subpath}'.
+	// This value is empty if site does not have sub-url.
+	AppSubURL string
+	// AppPath represents the path to the gitea binary
+	AppPath string
+	// AppWorkPath is the "working directory" of Gitea. It maps to the environment variable GITEA_WORK_DIR.
+	// If that is not set it is the default set here by the linker or failing that the directory of AppPath.
+	//
+	// AppWorkPath is used as the base path for several other paths.
+	AppWorkPath string
+	// AppDataPath is the default path for storing data.
+	// It maps to ini:"APP_DATA_PATH" and defaults to AppWorkPath + "/data"
+	AppDataPath string
 
 	// Server settings
 	Protocol             Scheme
@@ -99,37 +118,57 @@ var (
 	GracefulRestartable  bool
 	GracefulHammerTime   time.Duration
 	StartupTimeout       time.Duration
+	PerWriteTimeout      = 30 * time.Second
+	PerWritePerKbTimeout = 10 * time.Second
 	StaticURLPrefix      string
+	AbsoluteAssetURL     string
 
 	SSH = struct {
-		Disabled                 bool           `ini:"DISABLE_SSH"`
-		StartBuiltinServer       bool           `ini:"START_SSH_SERVER"`
-		BuiltinServerUser        string         `ini:"BUILTIN_SSH_SERVER_USER"`
-		Domain                   string         `ini:"SSH_DOMAIN"`
-		Port                     int            `ini:"SSH_PORT"`
-		ListenHost               string         `ini:"SSH_LISTEN_HOST"`
-		ListenPort               int            `ini:"SSH_LISTEN_PORT"`
-		RootPath                 string         `ini:"SSH_ROOT_PATH"`
-		ServerCiphers            []string       `ini:"SSH_SERVER_CIPHERS"`
-		ServerKeyExchanges       []string       `ini:"SSH_SERVER_KEY_EXCHANGES"`
-		ServerMACs               []string       `ini:"SSH_SERVER_MACS"`
-		KeyTestPath              string         `ini:"SSH_KEY_TEST_PATH"`
-		KeygenPath               string         `ini:"SSH_KEYGEN_PATH"`
-		AuthorizedKeysBackup     bool           `ini:"SSH_AUTHORIZED_KEYS_BACKUP"`
-		MinimumKeySizeCheck      bool           `ini:"-"`
-		MinimumKeySizes          map[string]int `ini:"-"`
-		CreateAuthorizedKeysFile bool           `ini:"SSH_CREATE_AUTHORIZED_KEYS_FILE"`
-		ExposeAnonymous          bool           `ini:"SSH_EXPOSE_ANONYMOUS"`
+		Disabled                              bool               `ini:"DISABLE_SSH"`
+		StartBuiltinServer                    bool               `ini:"START_SSH_SERVER"`
+		BuiltinServerUser                     string             `ini:"BUILTIN_SSH_SERVER_USER"`
+		Domain                                string             `ini:"SSH_DOMAIN"`
+		Port                                  int                `ini:"SSH_PORT"`
+		ListenHost                            string             `ini:"SSH_LISTEN_HOST"`
+		ListenPort                            int                `ini:"SSH_LISTEN_PORT"`
+		RootPath                              string             `ini:"SSH_ROOT_PATH"`
+		ServerCiphers                         []string           `ini:"SSH_SERVER_CIPHERS"`
+		ServerKeyExchanges                    []string           `ini:"SSH_SERVER_KEY_EXCHANGES"`
+		ServerMACs                            []string           `ini:"SSH_SERVER_MACS"`
+		ServerHostKeys                        []string           `ini:"SSH_SERVER_HOST_KEYS"`
+		KeyTestPath                           string             `ini:"SSH_KEY_TEST_PATH"`
+		KeygenPath                            string             `ini:"SSH_KEYGEN_PATH"`
+		AuthorizedKeysBackup                  bool               `ini:"SSH_AUTHORIZED_KEYS_BACKUP"`
+		AuthorizedPrincipalsBackup            bool               `ini:"SSH_AUTHORIZED_PRINCIPALS_BACKUP"`
+		AuthorizedKeysCommandTemplate         string             `ini:"SSH_AUTHORIZED_KEYS_COMMAND_TEMPLATE"`
+		AuthorizedKeysCommandTemplateTemplate *template.Template `ini:"-"`
+		MinimumKeySizeCheck                   bool               `ini:"-"`
+		MinimumKeySizes                       map[string]int     `ini:"-"`
+		CreateAuthorizedKeysFile              bool               `ini:"SSH_CREATE_AUTHORIZED_KEYS_FILE"`
+		CreateAuthorizedPrincipalsFile        bool               `ini:"SSH_CREATE_AUTHORIZED_PRINCIPALS_FILE"`
+		ExposeAnonymous                       bool               `ini:"SSH_EXPOSE_ANONYMOUS"`
+		AuthorizedPrincipalsAllow             []string           `ini:"SSH_AUTHORIZED_PRINCIPALS_ALLOW"`
+		AuthorizedPrincipalsEnabled           bool               `ini:"-"`
+		TrustedUserCAKeys                     []string           `ini:"SSH_TRUSTED_USER_CA_KEYS"`
+		TrustedUserCAKeysFile                 string             `ini:"SSH_TRUSTED_USER_CA_KEYS_FILENAME"`
+		TrustedUserCAKeysParsed               []gossh.PublicKey  `ini:"-"`
+		PerWriteTimeout                       time.Duration      `ini:"SSH_PER_WRITE_TIMEOUT"`
+		PerWritePerKbTimeout                  time.Duration      `ini:"SSH_PER_WRITE_PER_KB_TIMEOUT"`
 	}{
-		Disabled:           false,
-		StartBuiltinServer: false,
-		Domain:             "",
-		Port:               22,
-		ServerCiphers:      []string{"aes128-ctr", "aes192-ctr", "aes256-ctr", "aes128-gcm@openssh.com", "arcfour256", "arcfour128"},
-		ServerKeyExchanges: []string{"diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1", "ecdh-sha2-nistp256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp521", "curve25519-sha256@libssh.org"},
-		ServerMACs:         []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-256", "hmac-sha1", "hmac-sha1-96"},
-		KeygenPath:         "ssh-keygen",
-		MinimumKeySizes:    map[string]int{"ed25519": 256, "ecdsa": 256, "rsa": 2048, "dsa": 1024},
+		Disabled:                      false,
+		StartBuiltinServer:            false,
+		Domain:                        "",
+		Port:                          22,
+		ServerCiphers:                 []string{"aes128-ctr", "aes192-ctr", "aes256-ctr", "aes128-gcm@openssh.com", "arcfour256", "arcfour128"},
+		ServerKeyExchanges:            []string{"diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1", "ecdh-sha2-nistp256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp521", "curve25519-sha256@libssh.org"},
+		ServerMACs:                    []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-256", "hmac-sha1", "hmac-sha1-96"},
+		KeygenPath:                    "ssh-keygen",
+		MinimumKeySizeCheck:           true,
+		MinimumKeySizes:               map[string]int{"ed25519": 256, "ed25519-sk": 256, "ecdsa": 256, "ecdsa-sk": 256, "rsa": 2048},
+		ServerHostKeys:                []string{"ssh/gitea.rsa", "ssh/gogs.rsa"},
+		AuthorizedKeysCommandTemplate: "{{.AppPath}} --config={{.CustomConf}} serv key-{{.Key.ID}}",
+		PerWriteTimeout:               PerWriteTimeout,
+		PerWritePerKbTimeout:          PerWritePerKbTimeout,
 	}
 
 	// Security settings
@@ -140,9 +179,12 @@ var (
 	CookieRememberName                 string
 	ReverseProxyAuthUser               string
 	ReverseProxyAuthEmail              string
+	ReverseProxyLimit                  int
+	ReverseProxyTrustedProxies         []string
 	MinPasswordLength                  int
 	ImportLocalPaths                   bool
 	DisableGitHooks                    bool
+	DisableWebhooks                    bool
 	OnlyAllowPushIfGiteaEnvironmentSet bool
 	PasswordComplexity                 []string
 	PasswordHashAlgo                   string
@@ -176,6 +218,14 @@ var (
 			MaxTimeout            time.Duration
 			EventSourceUpdateTime time.Duration
 		} `ini:"ui.notification"`
+
+		SVG struct {
+			Enabled bool `ini:"ENABLE_RENDER"`
+		} `ini:"ui.svg"`
+
+		CSV struct {
+			MaxFileSize int64
+		} `ini:"ui.csv"`
 
 		Admin struct {
 			UserPagingNum   int
@@ -216,6 +266,16 @@ var (
 			TimeoutStep:           10 * time.Second,
 			MaxTimeout:            60 * time.Second,
 			EventSourceUpdateTime: 10 * time.Second,
+		},
+		SVG: struct {
+			Enabled bool `ini:"ENABLE_RENDER"`
+		}{
+			Enabled: true,
+		},
+		CSV: struct {
+			MaxFileSize int64
+		}{
+			MaxFileSize: 524288,
 		},
 		Admin: struct {
 			UserPagingNum   int
@@ -262,29 +322,14 @@ var (
 		DefaultEmailNotification  string
 	}
 
-	// Picture settings
-	AvatarUploadPath              string
-	AvatarMaxWidth                int
-	AvatarMaxHeight               int
-	GravatarSource                string
-	GravatarSourceURL             *url.URL
-	DisableGravatar               bool
-	EnableFederatedAvatar         bool
-	LibravatarService             *libravatar.Libravatar
-	AvatarMaxFileSize             int64
-	RepositoryAvatarUploadPath    string
-	RepositoryAvatarFallback      string
-	RepositoryAvatarFallbackImage string
-
 	// Log settings
-	LogLevel           string
+	LogLevel           log.Level
 	StacktraceLogLevel string
 	LogRootPath        string
-	RedirectMacaronLog bool
 	DisableRouterLog   bool
 	RouterLogLevel     log.Level
-	RouterLogMode      string
 	EnableAccessLog    bool
+	EnableSSHLog       bool
 	AccessLogTemplate  string
 	EnableXORMLog      bool
 
@@ -295,6 +340,8 @@ var (
 
 	CSRFCookieName     = "_csrf"
 	CSRFCookieHTTPOnly = true
+
+	ManifestData string
 
 	// Mirror settings
 	Mirror struct {
@@ -366,16 +413,17 @@ var (
 	CustomConf    string
 	PIDFile       = "/run/gitea.pid"
 	WritePIDFile  bool
-	ProdMode      bool
+	RunMode       string
 	RunUser       string
 	IsWindows     bool
 	HasRobotsTxt  bool
 	InternalToken string // internal access token
-
-	// UILocation is the location on the UI, so that we can display the time on UI.
-	// Currently only show the default time.Local, it could be added to app.ini after UI is ready
-	UILocation = time.Local
 )
+
+// IsProd if it's a production mode
+func IsProd() bool {
+	return strings.EqualFold(RunMode, "prod")
+}
 
 func getAppPath() (string, error) {
 	var appPath string
@@ -395,7 +443,7 @@ func getAppPath() (string, error) {
 	}
 	// Note: we don't use path.Dir here because it does not handle case
 	//	which path starts with two "/" in Windows: "//psf/Home/..."
-	return strings.Replace(appPath, "\\", "/", -1), err
+	return strings.ReplaceAll(appPath, "\\", "/"), err
 }
 
 func getWorkPath(appPath string) string {
@@ -412,7 +460,7 @@ func getWorkPath(appPath string) string {
 			workPath = appPath[:i]
 		}
 	}
-	return strings.Replace(workPath, "\\", "/", -1)
+	return strings.ReplaceAll(workPath, "\\", "/")
 }
 
 func init() {
@@ -501,7 +549,11 @@ func NewContext() {
 		createPIDFile(PIDFile)
 	}
 
-	if com.IsFile(CustomConf) {
+	isFile, err := util.IsFile(CustomConf)
+	if err != nil {
+		log.Error("Unable to check if %s is a file. Error: %v", CustomConf, err)
+	}
+	if isFile {
 		if err := Cfg.Append(CustomConf); err != nil {
 			log.Fatal("Failed to load custom conf '%s': %v", CustomConf, err)
 		}
@@ -514,13 +566,12 @@ func NewContext() {
 	if err != nil {
 		log.Fatal("Failed to get home directory: %v", err)
 	}
-	homeDir = strings.Replace(homeDir, "\\", "/", -1)
+	homeDir = strings.ReplaceAll(homeDir, "\\", "/")
 
-	LogLevel = getLogLevel(Cfg.Section("log"), "LEVEL", "Info")
+	LogLevel = getLogLevel(Cfg.Section("log"), "LEVEL", log.INFO)
 	StacktraceLogLevel = getStacktraceLogLevel(Cfg.Section("log"), "STACKTRACE_LEVEL", "None")
 	LogRootPath = Cfg.Section("log").Key("ROOT_PATH").MustString(path.Join(AppWorkPath, "log"))
 	forcePathSeparator(LogRootPath)
-	RedirectMacaronLog = Cfg.Section("log").Key("REDIRECT_MACARON_LOG").MustBool(false)
 	RouterLogLevel = log.FromString(Cfg.Section("log").Key("ROUTER_LOG_LEVEL").MustString("Info"))
 
 	sec := Cfg.Section("server")
@@ -571,13 +622,16 @@ func NewContext() {
 	GracefulRestartable = sec.Key("ALLOW_GRACEFUL_RESTARTS").MustBool(true)
 	GracefulHammerTime = sec.Key("GRACEFUL_HAMMER_TIME").MustDuration(60 * time.Second)
 	StartupTimeout = sec.Key("STARTUP_TIMEOUT").MustDuration(0 * time.Second)
+	PerWriteTimeout = sec.Key("PER_WRITE_TIMEOUT").MustDuration(PerWriteTimeout)
+	PerWritePerKbTimeout = sec.Key("PER_WRITE_PER_KB_TIMEOUT").MustDuration(PerWritePerKbTimeout)
 
 	defaultAppURL := string(Protocol) + "://" + Domain
 	if (Protocol == HTTP && HTTPPort != "80") || (Protocol == HTTPS && HTTPPort != "443") {
 		defaultAppURL += ":" + HTTPPort
 	}
-	AppURL = sec.Key("ROOT_URL").MustString(defaultAppURL)
-	AppURL = strings.TrimSuffix(AppURL, "/") + "/"
+	AppURL = sec.Key("ROOT_URL").MustString(defaultAppURL + "/")
+	// This should be TrimRight to ensure that there is only a single '/' at the end of AppURL.
+	AppURL = strings.TrimRight(AppURL, "/") + "/"
 
 	// Check if has app suburl.
 	appURL, err := url.Parse(AppURL)
@@ -588,12 +642,17 @@ func NewContext() {
 	// This value is empty if site does not have sub-url.
 	AppSubURL = strings.TrimSuffix(appURL.Path, "/")
 	StaticURLPrefix = strings.TrimSuffix(sec.Key("STATIC_URL_PREFIX").MustString(AppSubURL), "/")
-	AppSubURLDepth = strings.Count(AppSubURL, "/")
+
 	// Check if Domain differs from AppURL domain than update it to AppURL's domain
 	urlHostname := appURL.Hostname()
 	if urlHostname != Domain && net.ParseIP(urlHostname) == nil && urlHostname != "" {
 		Domain = urlHostname
 	}
+
+	AbsoluteAssetURL = MakeAbsoluteAssetURL(AppURL, StaticURLPrefix)
+
+	manifestBytes := MakeManifestData(AppName, AppURL, AbsoluteAssetURL)
+	ManifestData = `application/json;base64,` + base64.StdEncoding.EncodeToString(manifestBytes)
 
 	var defaultLocalURL string
 	switch Protocol {
@@ -660,6 +719,11 @@ func NewContext() {
 	if err = Cfg.Section("server").MapTo(&SSH); err != nil {
 		log.Fatal("Failed to map SSH settings: %v", err)
 	}
+	for i, key := range SSH.ServerHostKeys {
+		if !filepath.IsAbs(key) {
+			SSH.ServerHostKeys[i] = filepath.Join(AppDataPath, key)
+		}
+	}
 
 	SSH.KeygenPath = sec.Key("SSH_KEYGEN_PATH").MustString("ssh-keygen")
 	SSH.Port = sec.Key("SSH_PORT").MustInt(22)
@@ -670,15 +734,41 @@ func NewContext() {
 		SSH.StartBuiltinServer = false
 	}
 
+	trustedUserCaKeys := sec.Key("SSH_TRUSTED_USER_CA_KEYS").Strings(",")
+	for _, caKey := range trustedUserCaKeys {
+		pubKey, _, _, _, err := gossh.ParseAuthorizedKey([]byte(caKey))
+		if err != nil {
+			log.Fatal("Failed to parse TrustedUserCaKeys: %s %v", caKey, err)
+		}
+
+		SSH.TrustedUserCAKeysParsed = append(SSH.TrustedUserCAKeysParsed, pubKey)
+	}
+	if len(trustedUserCaKeys) > 0 {
+		// Set the default as email,username otherwise we can leave it empty
+		sec.Key("SSH_AUTHORIZED_PRINCIPALS_ALLOW").MustString("username,email")
+	} else {
+		sec.Key("SSH_AUTHORIZED_PRINCIPALS_ALLOW").MustString("off")
+	}
+
+	SSH.AuthorizedPrincipalsAllow, SSH.AuthorizedPrincipalsEnabled = parseAuthorizedPrincipalsAllow(sec.Key("SSH_AUTHORIZED_PRINCIPALS_ALLOW").Strings(","))
+
 	if !SSH.Disabled && !SSH.StartBuiltinServer {
 		if err := os.MkdirAll(SSH.RootPath, 0700); err != nil {
 			log.Fatal("Failed to create '%s': %v", SSH.RootPath, err)
 		} else if err = os.MkdirAll(SSH.KeyTestPath, 0644); err != nil {
 			log.Fatal("Failed to create '%s': %v", SSH.KeyTestPath, err)
 		}
+
+		if len(trustedUserCaKeys) > 0 && SSH.AuthorizedPrincipalsEnabled {
+			fname := sec.Key("SSH_TRUSTED_USER_CA_KEYS_FILENAME").MustString(filepath.Join(SSH.RootPath, "gitea-trusted-user-ca-keys.pem"))
+			if err := ioutil.WriteFile(fname,
+				[]byte(strings.Join(trustedUserCaKeys, "\n")), 0600); err != nil {
+				log.Fatal("Failed to create '%s': %v", fname, err)
+			}
+		}
 	}
 
-	SSH.MinimumKeySizeCheck = sec.Key("MINIMUM_KEY_SIZE_CHECK").MustBool()
+	SSH.MinimumKeySizeCheck = sec.Key("MINIMUM_KEY_SIZE_CHECK").MustBool(SSH.MinimumKeySizeCheck)
 	minimumKeySizes := Cfg.Section("ssh.minimum_key_sizes").Keys()
 	for _, key := range minimumKeySizes {
 		if key.MustInt() != -1 {
@@ -687,9 +777,24 @@ func NewContext() {
 			delete(SSH.MinimumKeySizes, strings.ToLower(key.Name()))
 		}
 	}
+
 	SSH.AuthorizedKeysBackup = sec.Key("SSH_AUTHORIZED_KEYS_BACKUP").MustBool(true)
 	SSH.CreateAuthorizedKeysFile = sec.Key("SSH_CREATE_AUTHORIZED_KEYS_FILE").MustBool(true)
+
+	SSH.AuthorizedPrincipalsBackup = false
+	SSH.CreateAuthorizedPrincipalsFile = false
+	if SSH.AuthorizedPrincipalsEnabled {
+		SSH.AuthorizedPrincipalsBackup = sec.Key("SSH_AUTHORIZED_PRINCIPALS_BACKUP").MustBool(true)
+		SSH.CreateAuthorizedPrincipalsFile = sec.Key("SSH_CREATE_AUTHORIZED_PRINCIPALS_FILE").MustBool(true)
+	}
+
 	SSH.ExposeAnonymous = sec.Key("SSH_EXPOSE_ANONYMOUS").MustBool(false)
+	SSH.AuthorizedKeysCommandTemplate = sec.Key("SSH_AUTHORIZED_KEYS_COMMAND_TEMPLATE").MustString(SSH.AuthorizedKeysCommandTemplate)
+
+	SSH.AuthorizedKeysCommandTemplateTemplate = template.Must(template.New("").Parse(SSH.AuthorizedKeysCommandTemplate))
+
+	SSH.PerWriteTimeout = sec.Key("SSH_PER_WRITE_TIMEOUT").MustDuration(PerWriteTimeout)
+	SSH.PerWritePerKbTimeout = sec.Key("SSH_PER_WRITE_PER_KB_TIMEOUT").MustDuration(PerWritePerKbTimeout)
 
 	if err = Cfg.Section("oauth2").MapTo(&OAuth2); err != nil {
 		log.Fatal("Failed to OAuth2 settings: %v", err)
@@ -706,23 +811,10 @@ func NewContext() {
 				log.Fatal("error generating JWT secret: %v", err)
 				return
 			}
-			cfg := ini.Empty()
-			if com.IsFile(CustomConf) {
-				if err := cfg.Append(CustomConf); err != nil {
-					log.Error("failed to load custom conf %s: %v", CustomConf, err)
-					return
-				}
-			}
-			cfg.Section("oauth2").Key("JWT_SECRET").SetValue(OAuth2.JWTSecretBase64)
 
-			if err := os.MkdirAll(filepath.Dir(CustomConf), os.ModePerm); err != nil {
-				log.Fatal("failed to create '%s': %v", CustomConf, err)
-				return
-			}
-			if err := cfg.SaveTo(CustomConf); err != nil {
-				log.Fatal("error saving generating JWT secret to custom config: %v", err)
-				return
-			}
+			CreateOrAppendToCustomConf(func(cfg *ini.File) {
+				cfg.Section("oauth2").Key("JWT_SECRET").SetValue(OAuth2.JWTSecretBase64)
+			})
 		}
 	}
 
@@ -735,13 +827,22 @@ func NewContext() {
 	LogInRememberDays = sec.Key("LOGIN_REMEMBER_DAYS").MustInt(7)
 	CookieUserName = sec.Key("COOKIE_USERNAME").MustString("gitea_awesome")
 	CookieRememberName = sec.Key("COOKIE_REMEMBER_NAME").MustString("gitea_incredible")
+
 	ReverseProxyAuthUser = sec.Key("REVERSE_PROXY_AUTHENTICATION_USER").MustString("X-WEBAUTH-USER")
 	ReverseProxyAuthEmail = sec.Key("REVERSE_PROXY_AUTHENTICATION_EMAIL").MustString("X-WEBAUTH-EMAIL")
+
+	ReverseProxyLimit = sec.Key("REVERSE_PROXY_LIMIT").MustInt(1)
+	ReverseProxyTrustedProxies = sec.Key("REVERSE_PROXY_TRUSTED_PROXIES").Strings(",")
+	if len(ReverseProxyTrustedProxies) == 0 {
+		ReverseProxyTrustedProxies = []string{"127.0.0.0/8", "::1/128"}
+	}
+
 	MinPasswordLength = sec.Key("MIN_PASSWORD_LENGTH").MustInt(6)
 	ImportLocalPaths = sec.Key("IMPORT_LOCAL_PATHS").MustBool(false)
-	DisableGitHooks = sec.Key("DISABLE_GIT_HOOKS").MustBool(false)
+	DisableGitHooks = sec.Key("DISABLE_GIT_HOOKS").MustBool(true)
+	DisableWebhooks = sec.Key("DISABLE_WEBHOOKS").MustBool(false)
 	OnlyAllowPushIfGiteaEnvironmentSet = sec.Key("ONLY_ALLOW_PUSH_IF_GITEA_ENVIRONMENT_SET").MustBool(true)
-	PasswordHashAlgo = sec.Key("PASSWORD_HASH_ALGO").MustString("argon2")
+	PasswordHashAlgo = sec.Key("PASSWORD_HASH_ALGO").MustString("pbkdf2")
 	CSRFCookieHTTPOnly = sec.Key("CSRF_COOKIE_HTTP_ONLY").MustBool(true)
 	PasswordCheckPwn = sec.Key("PASSWORD_CHECK_PWN").MustBool(false)
 
@@ -759,7 +860,6 @@ func NewContext() {
 		}
 	}
 
-	newStorageService()
 	newAttachmentService()
 	newLFSService()
 
@@ -808,6 +908,7 @@ func NewContext() {
 	}
 
 	RunUser = Cfg.Section("").Key("RUN_USER").MustString(user.CurrentUsername())
+	RunMode = Cfg.Section("").Key("RUN_MODE").MustString("prod")
 	// Does not check run user when the install lock is off.
 	if InstallLock {
 		currentUser, match := IsRunUserMatchCurrentUser(RunUser)
@@ -820,59 +921,7 @@ func NewContext() {
 
 	newRepository()
 
-	sec = Cfg.Section("picture")
-	AvatarUploadPath = sec.Key("AVATAR_UPLOAD_PATH").MustString(path.Join(AppDataPath, "avatars"))
-	forcePathSeparator(AvatarUploadPath)
-	if !filepath.IsAbs(AvatarUploadPath) {
-		AvatarUploadPath = path.Join(AppWorkPath, AvatarUploadPath)
-	}
-	RepositoryAvatarUploadPath = sec.Key("REPOSITORY_AVATAR_UPLOAD_PATH").MustString(path.Join(AppDataPath, "repo-avatars"))
-	forcePathSeparator(RepositoryAvatarUploadPath)
-	if !filepath.IsAbs(RepositoryAvatarUploadPath) {
-		RepositoryAvatarUploadPath = path.Join(AppWorkPath, RepositoryAvatarUploadPath)
-	}
-	RepositoryAvatarFallback = sec.Key("REPOSITORY_AVATAR_FALLBACK").MustString("none")
-	RepositoryAvatarFallbackImage = sec.Key("REPOSITORY_AVATAR_FALLBACK_IMAGE").MustString("/img/repo_default.png")
-	AvatarMaxWidth = sec.Key("AVATAR_MAX_WIDTH").MustInt(4096)
-	AvatarMaxHeight = sec.Key("AVATAR_MAX_HEIGHT").MustInt(3072)
-	AvatarMaxFileSize = sec.Key("AVATAR_MAX_FILE_SIZE").MustInt64(1048576)
-	switch source := sec.Key("GRAVATAR_SOURCE").MustString("gravatar"); source {
-	case "duoshuo":
-		GravatarSource = "http://gravatar.duoshuo.com/avatar/"
-	case "gravatar":
-		GravatarSource = "https://secure.gravatar.com/avatar/"
-	case "libravatar":
-		GravatarSource = "https://seccdn.libravatar.org/avatar/"
-	default:
-		GravatarSource = source
-	}
-	DisableGravatar = sec.Key("DISABLE_GRAVATAR").MustBool()
-	EnableFederatedAvatar = sec.Key("ENABLE_FEDERATED_AVATAR").MustBool(!InstallLock)
-	if OfflineMode {
-		DisableGravatar = true
-		EnableFederatedAvatar = false
-	}
-	if DisableGravatar {
-		EnableFederatedAvatar = false
-	}
-	if EnableFederatedAvatar || !DisableGravatar {
-		GravatarSourceURL, err = url.Parse(GravatarSource)
-		if err != nil {
-			log.Fatal("Failed to parse Gravatar URL(%s): %v",
-				GravatarSource, err)
-		}
-	}
-
-	if EnableFederatedAvatar {
-		LibravatarService = libravatar.New()
-		if GravatarSourceURL.Scheme == "https" {
-			LibravatarService.SetUseHTTPS(true)
-			LibravatarService.SetSecureFallbackHost(GravatarSourceURL.Host)
-		} else {
-			LibravatarService.SetUseHTTPS(false)
-			LibravatarService.SetFallbackHost(GravatarSourceURL.Host)
-		}
-	}
+	newPictureService()
 
 	if err = Cfg.Section("ui").MapTo(&UI); err != nil {
 		log.Fatal("Failed to map UI settings: %v", err)
@@ -928,7 +977,10 @@ func NewContext() {
 	UI.SearchRepoDescription = Cfg.Section("ui").Key("SEARCH_REPO_DESCRIPTION").MustBool(true)
 	UI.UseServiceWorker = Cfg.Section("ui").Key("USE_SERVICE_WORKER").MustBool(true)
 
-	HasRobotsTxt = com.IsFile(path.Join(CustomPath, "robots.txt"))
+	HasRobotsTxt, err = util.IsFile(path.Join(CustomPath, "robots.txt"))
+	if err != nil {
+		log.Error("Unable to check if %s is a file. Error: %v", path.Join(CustomPath, "robots.txt"), err)
+	}
 
 	newMarkup()
 
@@ -940,6 +992,38 @@ func NewContext() {
 	for _, reaction := range UI.Reactions {
 		UI.ReactionsMap[reaction] = true
 	}
+}
+
+func parseAuthorizedPrincipalsAllow(values []string) ([]string, bool) {
+	anything := false
+	email := false
+	username := false
+	for _, value := range values {
+		v := strings.ToLower(strings.TrimSpace(value))
+		switch v {
+		case "off":
+			return []string{"off"}, false
+		case "email":
+			email = true
+		case "username":
+			username = true
+		case "anything":
+			anything = true
+		}
+	}
+	if anything {
+		return []string{"anything"}, true
+	}
+
+	authorizedPrincipalsAllow := []string{}
+	if username {
+		authorizedPrincipalsAllow = append(authorizedPrincipalsAllow, "username")
+	}
+	if email {
+		authorizedPrincipalsAllow = append(authorizedPrincipalsAllow, "email")
+	}
+
+	return authorizedPrincipalsAllow, true
 }
 
 func loadInternalToken(sec *ini.Section) string {
@@ -992,30 +1076,105 @@ func loadOrGenerateInternalToken(sec *ini.Section) string {
 		}
 
 		// Save secret
-		cfgSave := ini.Empty()
-		if com.IsFile(CustomConf) {
-			// Keeps custom settings if there is already something.
-			if err := cfgSave.Append(CustomConf); err != nil {
-				log.Error("Failed to load custom conf '%s': %v", CustomConf, err)
-			}
-		}
-
-		cfgSave.Section("security").Key("INTERNAL_TOKEN").SetValue(token)
-
-		if err := os.MkdirAll(filepath.Dir(CustomConf), os.ModePerm); err != nil {
-			log.Fatal("Failed to create '%s': %v", CustomConf, err)
-		}
-		if err := cfgSave.SaveTo(CustomConf); err != nil {
-			log.Fatal("Error saving generated INTERNAL_TOKEN to custom config: %v", err)
-		}
+		CreateOrAppendToCustomConf(func(cfg *ini.File) {
+			cfg.Section("security").Key("INTERNAL_TOKEN").SetValue(token)
+		})
 	}
 	return token
+}
+
+// MakeAbsoluteAssetURL returns the absolute asset url prefix without a trailing slash
+func MakeAbsoluteAssetURL(appURL string, staticURLPrefix string) string {
+	parsedPrefix, err := url.Parse(strings.TrimSuffix(staticURLPrefix, "/"))
+	if err != nil {
+		log.Fatal("Unable to parse STATIC_URL_PREFIX: %v", err)
+	}
+
+	if err == nil && parsedPrefix.Hostname() == "" {
+		if staticURLPrefix == "" {
+			return strings.TrimSuffix(appURL, "/")
+		}
+
+		// StaticURLPrefix is just a path
+		return util.URLJoin(appURL, strings.TrimSuffix(staticURLPrefix, "/"))
+	}
+
+	return strings.TrimSuffix(staticURLPrefix, "/")
+}
+
+// MakeManifestData generates web app manifest JSON
+func MakeManifestData(appName string, appURL string, absoluteAssetURL string) []byte {
+	type manifestIcon struct {
+		Src   string `json:"src"`
+		Type  string `json:"type"`
+		Sizes string `json:"sizes"`
+	}
+
+	type manifestJSON struct {
+		Name      string         `json:"name"`
+		ShortName string         `json:"short_name"`
+		StartURL  string         `json:"start_url"`
+		Icons     []manifestIcon `json:"icons"`
+	}
+
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	bytes, err := json.Marshal(&manifestJSON{
+		Name:      appName,
+		ShortName: appName,
+		StartURL:  appURL,
+		Icons: []manifestIcon{
+			{
+				Src:   absoluteAssetURL + "/assets/img/logo.png",
+				Type:  "image/png",
+				Sizes: "512x512",
+			},
+			{
+				Src:   absoluteAssetURL + "/assets/img/logo.svg",
+				Type:  "image/svg+xml",
+				Sizes: "512x512",
+			},
+		},
+	})
+
+	if err != nil {
+		log.Error("unable to marshal manifest JSON. Error: %v", err)
+		return make([]byte, 0)
+	}
+
+	return bytes
+}
+
+// CreateOrAppendToCustomConf creates or updates the custom config.
+// Use the callback to set individual values.
+func CreateOrAppendToCustomConf(callback func(cfg *ini.File)) {
+	cfg := ini.Empty()
+	isFile, err := util.IsFile(CustomConf)
+	if err != nil {
+		log.Error("Unable to check if %s is a file. Error: %v", CustomConf, err)
+	}
+	if isFile {
+		if err := cfg.Append(CustomConf); err != nil {
+			log.Error("failed to load custom conf %s: %v", CustomConf, err)
+			return
+		}
+	}
+
+	callback(cfg)
+
+	if err := os.MkdirAll(filepath.Dir(CustomConf), os.ModePerm); err != nil {
+		log.Fatal("failed to create '%s': %v", CustomConf, err)
+		return
+	}
+	if err := cfg.SaveTo(CustomConf); err != nil {
+		log.Fatal("error saving to custom config: %v", err)
+	}
 }
 
 // NewServices initializes the services
 func NewServices() {
 	InitDBConfig()
 	newService()
+	newOAuth2Client()
 	NewLogServices(false)
 	newCacheService()
 	newSessionService()
@@ -1029,4 +1188,5 @@ func NewServices() {
 	newTaskService()
 	NewQueueService()
 	newProject()
+	newMimeTypeMap()
 }

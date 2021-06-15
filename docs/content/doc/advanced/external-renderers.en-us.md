@@ -3,7 +3,7 @@ date: "2018-11-23:00:00+02:00"
 title: "External renderers"
 slug: "external-renderers"
 weight: 40
-toc: true
+toc: false
 draft: false
 menu:
   sidebar:
@@ -15,33 +15,37 @@ menu:
 
 # Custom files rendering configuration
 
-Gitea supports custom file renderings (i.e., Jupyter notebooks, asciidoc, etc.) through external binaries, 
+**Table of Contents**
+
+{{< toc >}}
+
+Gitea supports custom file renderings (i.e., Jupyter notebooks, asciidoc, etc.) through external binaries,
 it is just a matter of:
 
-* installing external binaries
-* add some configuration to your `app.ini` file
-* restart your Gitea instance
+- installing external binaries
+- add some configuration to your `app.ini` file
+- restart your Gitea instance
 
 This supports rendering of whole files. If you want to render code blocks in markdown you would need to do something with javascript. See some examples on the [Customizing Gitea](../customizing-gitea) page.
 
 ## Installing external binaries
 
-In order to get file rendering through external binaries, their associated packages must be installed. 
+In order to get file rendering through external binaries, their associated packages must be installed.
 If you're using a Docker image, your `Dockerfile` should contain something along this lines:
 
-```
+```docker
 FROM gitea/gitea:{{< version >}}
 [...]
 
 COPY custom/app.ini /data/gitea/conf/app.ini
 [...]
 
-RUN apk --no-cache add asciidoctor freetype freetype-dev gcc g++ libpng libffi-dev python-dev py-pip python3-dev py3-pip py3-pyzmq
+RUN apk --no-cache add asciidoctor freetype freetype-dev gcc g++ libpng libffi-dev py-pip python3-dev py3-pip py3-pyzmq
 # install any other package you need for your external renderers
 
 RUN pip3 install --upgrade pip
 RUN pip3 install -U setuptools
-RUN pip3 install jupyter docutils 
+RUN pip3 install jupyter docutils
 # add above any other python package you may need to install
 ```
 
@@ -49,7 +53,7 @@ RUN pip3 install jupyter docutils
 
 add one `[markup.XXXXX]` section per external renderer on your custom `app.ini`:
 
-```
+```ini
 [markup.asciidoc]
 ENABLED = true
 FILE_EXTENSIONS = .adoc,.asciidoc
@@ -66,7 +70,7 @@ IS_INPUT_FILE = true
 [markup.restructuredtext]
 ENABLED = true
 FILE_EXTENSIONS = .rst
-RENDER_COMMAND = rst2html.py
+RENDER_COMMAND = "timeout 30s pandoc +RTS -M512M -RTS -f rst"
 IS_INPUT_FILE = false
 ```
 
@@ -94,3 +98,36 @@ Once your configuration changes have been made, restart Gitea to have changes ta
 
 **Note**: Prior to Gitea 1.12 there was a single `markup.sanitiser` section with keys that were redefined for multiple rules, however,
 there were significant problems with this method of configuration necessitating configuration through multiple sections.
+
+## Customizing CSS
+The external renderer is specified in the .ini in the format `[markup.XXXXX]` and the HTML supplied by your external renderer will be wrapped in a `<div>` with classes `markup` and `XXXXX`. The `markup` class provides out of the box styling (as does `markdown` if `XXXXX` is `markdown`). Otherwise you can use these classes to specifically target the contents of your rendered HTML. 
+
+And so you could write some CSS:
+```css
+.markup.XXXXX html {
+  font-size: 100%;
+  overflow-y: scroll;
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+}
+
+.markup.XXXXX body {
+  color: #444;
+  font-family: Georgia, Palatino, 'Palatino Linotype', Times, 'Times New Roman', serif;
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 1em;
+  margin: auto;
+  max-width: 42em;
+  background: #fefefe;
+}
+
+.markup.XXXXX p {
+  color: orangered;
+}
+```
+
+Add your stylesheet to your custom directory e.g `custom/public/css/my-style-XXXXX.css` and import it using a custom header file `custom/templates/custom/header.tmpl`:
+```html
+<link type="text/css" href="{{AppSubUrl}}/css/my-style-XXXXX.css" />
+```

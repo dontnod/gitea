@@ -124,11 +124,17 @@ func (c *Command) RunInDirTimeoutEnvFullPipelineFunc(env []string, timeout time.
 
 	cmd := exec.CommandContext(ctx, c.name, c.args...)
 	if env == nil {
-		cmd.Env = append(os.Environ(), fmt.Sprintf("LC_ALL=%s", DefaultLocale))
+		cmd.Env = os.Environ()
 	} else {
 		cmd.Env = env
-		cmd.Env = append(cmd.Env, fmt.Sprintf("LC_ALL=%s", DefaultLocale))
 	}
+
+	cmd.Env = append(
+		cmd.Env,
+		fmt.Sprintf("LC_ALL=%s", DefaultLocale),
+		// avoid prompting for credentials interactively, supported since git v2.3
+		"GIT_TERMINAL_PROMPT=0",
+	)
 
 	// TODO: verify if this is still needed in golang 1.15
 	if goVersionLessThan115 {
@@ -153,6 +159,7 @@ func (c *Command) RunInDirTimeoutEnvFullPipelineFunc(env []string, timeout time.
 		err := fn(ctx, cancel)
 		if err != nil {
 			cancel()
+			_ = cmd.Wait()
 			return err
 		}
 	}
@@ -188,7 +195,7 @@ func (c *Command) RunInDirTimeoutEnv(env []string, timeout time.Duration, dir st
 	stdout := new(bytes.Buffer)
 	stderr := new(bytes.Buffer)
 	if err := c.RunInDirTimeoutEnvPipeline(env, timeout, dir, stdout, stderr); err != nil {
-		return nil, concatenateError(err, stderr.String())
+		return nil, ConcatenateError(err, stderr.String())
 	}
 
 	if stdout.Len() > 0 {

@@ -6,7 +6,6 @@ package setting
 
 import (
 	"fmt"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,8 +16,9 @@ import (
 
 // QueueSettings represent the settings for a queue from the ini
 type QueueSettings struct {
+	Name             string
 	DataDir          string
-	Length           int
+	QueueLength      int `ini:"LENGTH"`
 	BatchLength      int
 	ConnectionString string
 	Type             string
@@ -45,8 +45,10 @@ var Queue = QueueSettings{}
 func GetQueueSettings(name string) QueueSettings {
 	q := QueueSettings{}
 	sec := Cfg.Section("queue." + name)
+	q.Name = name
+
 	// DataDir is not directly inheritable
-	q.DataDir = filepath.Join(Queue.DataDir, name)
+	q.DataDir = filepath.ToSlash(filepath.Join(Queue.DataDir, "common"))
 	// QueueName is not directly inheritable either
 	q.QueueName = name + Queue.QueueName
 	for _, key := range sec.Keys() {
@@ -66,8 +68,9 @@ func GetQueueSettings(name string) QueueSettings {
 		q.DataDir = filepath.Join(AppDataPath, q.DataDir)
 	}
 	_, _ = sec.NewKey("DATADIR", q.DataDir)
+
 	// The rest are...
-	q.Length = sec.Key("LENGTH").MustInt(Queue.Length)
+	q.QueueLength = sec.Key("LENGTH").MustInt(Queue.QueueLength)
 	q.BatchLength = sec.Key("BATCH_LENGTH").MustInt(Queue.BatchLength)
 	q.ConnectionString = sec.Key("CONN_STR").MustString(Queue.ConnectionString)
 	q.Type = sec.Key("TYPE").MustString(Queue.Type)
@@ -88,23 +91,23 @@ func GetQueueSettings(name string) QueueSettings {
 // This is exported for tests to be able to use the queue
 func NewQueueService() {
 	sec := Cfg.Section("queue")
-	Queue.DataDir = sec.Key("DATADIR").MustString("queues/")
+	Queue.DataDir = filepath.ToSlash(sec.Key("DATADIR").MustString("queues/"))
 	if !filepath.IsAbs(Queue.DataDir) {
-		Queue.DataDir = filepath.Join(AppDataPath, Queue.DataDir)
+		Queue.DataDir = filepath.ToSlash(filepath.Join(AppDataPath, Queue.DataDir))
 	}
-	Queue.Length = sec.Key("LENGTH").MustInt(20)
+	Queue.QueueLength = sec.Key("LENGTH").MustInt(20)
 	Queue.BatchLength = sec.Key("BATCH_LENGTH").MustInt(20)
-	Queue.ConnectionString = sec.Key("CONN_STR").MustString(path.Join(AppDataPath, ""))
+	Queue.ConnectionString = sec.Key("CONN_STR").MustString("")
 	Queue.Type = sec.Key("TYPE").MustString("persistable-channel")
 	Queue.Network, Queue.Addresses, Queue.Password, Queue.DBIndex, _ = ParseQueueConnStr(Queue.ConnectionString)
 	Queue.WrapIfNecessary = sec.Key("WRAP_IF_NECESSARY").MustBool(true)
 	Queue.MaxAttempts = sec.Key("MAX_ATTEMPTS").MustInt(10)
 	Queue.Timeout = sec.Key("TIMEOUT").MustDuration(GracefulHammerTime + 30*time.Second)
-	Queue.Workers = sec.Key("WORKERS").MustInt(1)
+	Queue.Workers = sec.Key("WORKERS").MustInt(0)
 	Queue.MaxWorkers = sec.Key("MAX_WORKERS").MustInt(10)
 	Queue.BlockTimeout = sec.Key("BLOCK_TIMEOUT").MustDuration(1 * time.Second)
 	Queue.BoostTimeout = sec.Key("BOOST_TIMEOUT").MustDuration(5 * time.Minute)
-	Queue.BoostWorkers = sec.Key("BOOST_WORKERS").MustInt(5)
+	Queue.BoostWorkers = sec.Key("BOOST_WORKERS").MustInt(1)
 	Queue.QueueName = sec.Key("QUEUE_NAME").MustString("_queue")
 	Queue.SetName = sec.Key("SET_NAME").MustString("")
 

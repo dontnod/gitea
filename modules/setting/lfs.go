@@ -6,15 +6,12 @@ package setting
 
 import (
 	"encoding/base64"
-	"os"
-	"path/filepath"
 	"time"
 
 	"code.gitea.io/gitea/modules/generate"
 	"code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/log"
 
-	"github.com/unknwon/com"
 	ini "gopkg.in/ini.v1"
 )
 
@@ -37,40 +34,15 @@ func newLFSService() {
 	}
 
 	lfsSec := Cfg.Section("lfs")
-	LFS.Storage.Type = lfsSec.Key("STORAGE_TYPE").MustString("")
-	if LFS.Storage.Type == "" {
-		LFS.Storage.Type = "default"
-	}
+	storageType := lfsSec.Key("STORAGE_TYPE").MustString("")
 
-	if LFS.Storage.Type != LocalStorageType && LFS.Storage.Type != MinioStorageType {
-		storage, ok := storages[LFS.Storage.Type]
-		if !ok {
-			log.Fatal("Failed to get lfs storage type: %s", LFS.Storage.Type)
-		}
-		LFS.Storage = storage
-	}
+	// Specifically default PATH to LFS_CONTENT_PATH
+	lfsSec.Key("PATH").MustString(
+		sec.Key("LFS_CONTENT_PATH").String())
 
-	// Override
-	LFS.ServeDirect = lfsSec.Key("SERVE_DIRECT").MustBool(LFS.ServeDirect)
-	switch LFS.Storage.Type {
-	case LocalStorageType:
-		// keep compatible
-		LFS.Path = sec.Key("LFS_CONTENT_PATH").MustString(filepath.Join(AppDataPath, "lfs"))
-		LFS.Path = lfsSec.Key("PATH").MustString(LFS.Path)
-		if !filepath.IsAbs(LFS.Path) {
-			LFS.Path = filepath.Join(AppWorkPath, LFS.Path)
-		}
+	LFS.Storage = getStorage("lfs", storageType, lfsSec)
 
-	case MinioStorageType:
-		LFS.Minio.Endpoint = lfsSec.Key("MINIO_ENDPOINT").MustString(LFS.Minio.Endpoint)
-		LFS.Minio.AccessKeyID = lfsSec.Key("MINIO_ACCESS_KEY_ID").MustString(LFS.Minio.AccessKeyID)
-		LFS.Minio.SecretAccessKey = lfsSec.Key("MINIO_SECRET_ACCESS_KEY").MustString(LFS.Minio.SecretAccessKey)
-		LFS.Minio.Bucket = lfsSec.Key("MINIO_BUCKET").MustString(LFS.Minio.Bucket)
-		LFS.Minio.Location = lfsSec.Key("MINIO_LOCATION").MustString(LFS.Minio.Location)
-		LFS.Minio.UseSSL = lfsSec.Key("MINIO_USE_SSL").MustBool(LFS.Minio.UseSSL)
-		LFS.Minio.BasePath = lfsSec.Key("MINIO_BASE_PATH").MustString("lfs/")
-	}
-
+	// Rest of LFS service settings
 	if LFS.LocksPagingNum == 0 {
 		LFS.LocksPagingNum = 50
 	}
@@ -89,23 +61,9 @@ func newLFSService() {
 			}
 
 			// Save secret
-			cfg := ini.Empty()
-			if com.IsFile(CustomConf) {
-				// Keeps custom settings if there is already something.
-				if err := cfg.Append(CustomConf); err != nil {
-					log.Error("Failed to load custom conf '%s': %v", CustomConf, err)
-				}
-			}
-
-			cfg.Section("server").Key("LFS_JWT_SECRET").SetValue(LFS.JWTSecretBase64)
-
-			if err := os.MkdirAll(filepath.Dir(CustomConf), os.ModePerm); err != nil {
-				log.Fatal("Failed to create '%s': %v", CustomConf, err)
-			}
-			if err := cfg.SaveTo(CustomConf); err != nil {
-				log.Fatal("Error saving generated JWT Secret to custom config: %v", err)
-				return
-			}
+			CreateOrAppendToCustomConf(func(cfg *ini.File) {
+				cfg.Section("server").Key("LFS_JWT_SECRET").SetValue(LFS.JWTSecretBase64)
+			})
 		}
 	}
 }
@@ -121,7 +79,7 @@ func CheckLFSVersion() {
 			log.Fatal("Error retrieving git version: %v", err)
 		}
 
-		if git.CheckGitVersionConstraint(">= 2.1.2") != nil {
+		if git.CheckGitVersionAtLeast("2.1.2") != nil {
 			LFS.StartServer = false
 			log.Error("LFS server support needs at least Git v2.1.2")
 		} else {

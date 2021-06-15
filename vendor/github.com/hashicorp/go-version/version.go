@@ -18,10 +18,14 @@ var (
 // The raw regular expression string used for testing the validity
 // of a version.
 const (
-	VersionRegexpRaw string = `[vV]?([0-9]+(\.[0-9]+)*?)` +
-		`(-([0-9]+[0-9A-Za-z\-~]*(\.[0-9A-Za-z\-~]+)*)|(-?([A-Za-z\-~]+[0-9A-Za-z\-~]*(\.[0-9A-Za-z\-~]+)*)))?` +
-		`(\+([0-9A-Za-z\-~]+(\.[0-9A-Za-z\-~]+)*))?` +
-		`([\+\.\-~]g[0-9A-Fa-f]{10}$)?` +
+	VersionRegexpRaw string = `(?:\w+\-)*[vV]?` + // Optional prefixes, will be ignored for parsing
+		`([0-9]+(\.[0-9]+)*?)` + // ( MajorNum ( '.' MinorNums ) *? )
+		`(-` + // Followed by (optionally): ( '-'
+		`([0-9]+[0-9A-Za-z\-~]*(\.[0-9A-Za-z\-~]+)*)` + // Either ( PreNum String ( '.' OtherString ) * )
+		`|` +
+		`([-\.]?([A-Za-z\-~]+[0-9A-Za-z\-~]*(\.[0-9A-Za-z\-~]+)*)))?` + // Or ( ['-' '.' ] ? ( AlphaHyphenTilde String * ( '.' String ) *  ))) ?
+		`(\+([0-9A-Za-z\-~]+(\.[0-9A-Za-z\-~]+)*))?` + // and more Optionally: ( '+' String ( '.' String ) * )
+		`([\+\.\-~]g[0-9A-Fa-f]{10}$)?` + // Optionally a: ( Punct 'g' Sha )
 		`?`
 
 	// SemverRegexpRaw requires a separator between version and prerelease
@@ -163,7 +167,7 @@ func (v *Version) Compare(other *Version) int {
 			// this means Other had the lower specificity
 			// Check to see if the remaining segments in Self are all zeros -
 			if !allZero(segmentsSelf[i:]) {
-				//if not, it means that Self has to be greater than Other
+				// if not, it means that Self has to be greater than Other
 				return 1
 			}
 			break
@@ -258,7 +262,7 @@ func comparePrereleases(v string, other string) int {
 	}
 
 	// loop for parts to find the first difference
-	for i := 0; i < biggestLen; i = i + 1 {
+	for i := 0; i < biggestLen; i++ {
 		partSelfPre := ""
 		if i < selfPreReleaseLen {
 			partSelfPre = selfPreReleaseMeta[i]
@@ -277,6 +281,14 @@ func comparePrereleases(v string, other string) int {
 	}
 
 	return 0
+}
+
+// Core returns a new version constructed from only the MAJOR.MINOR.PATCH
+// segments of the version, without prerelease or metadata.
+func (v *Version) Core() *Version {
+	segments := v.Segments64()
+	segmentsOnly := fmt.Sprintf("%d.%d.%d", segments[0], segments[1], segments[2])
+	return Must(NewVersion(segmentsOnly))
 }
 
 // Equal tests if two versions are equal.
@@ -367,7 +379,7 @@ func (v *Version) String() string {
 		str := strconv.FormatInt(s, 10)
 		fmtParts[i] = str
 	}
-	fmt.Fprintf(&buf, strings.Join(fmtParts, "."))
+	fmt.Fprint(&buf, strings.Join(fmtParts, "."))
 	if v.pre != "" {
 		fmt.Fprintf(&buf, "-%s", v.pre)
 	}
@@ -382,4 +394,16 @@ func (v *Version) String() string {
 // potential whitespace, `v` prefix, etc.
 func (v *Version) Original() string {
 	return v.original
+}
+
+// RemoveMeta remove metadata
+// original parsed version data is not touched
+func (v *Version) RemoveMeta() {
+	v.metadata = ""
+}
+
+// RemovePre remove pre-release data
+// original parsed version data is not touched
+func (v *Version) RemovePre() {
+	v.pre = ""
 }

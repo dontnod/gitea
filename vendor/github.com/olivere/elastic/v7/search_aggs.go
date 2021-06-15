@@ -98,6 +98,22 @@ func (a Aggregations) WeightedAvg(name string) (*AggregationValueMetric, bool) {
 	return nil, false
 }
 
+// MedianAbsoluteDeviation returns median absolute deviation aggregation results.
+// See https://www.elastic.co/guide/en/elasticsearch/reference/7.6/search-aggregations-metrics-median-absolute-deviation-aggregation.html
+// for details.
+func (a Aggregations) MedianAbsoluteDeviation(name string) (*AggregationValueMetric, bool) {
+	if raw, found := a[name]; found {
+		agg := new(AggregationValueMetric)
+		if raw == nil {
+			return agg, true
+		}
+		if err := json.Unmarshal(raw, agg); err == nil {
+			return agg, true
+		}
+	}
+	return nil, false
+}
+
 // ValueCount returns value-count aggregation results.
 // See: https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-aggregations-metrics-valuecount-aggregation.html
 func (a Aggregations) ValueCount(name string) (*AggregationValueMetric, bool) {
@@ -368,6 +384,21 @@ func (a Aggregations) SignificantTerms(name string) (*AggregationBucketSignifica
 	return nil, false
 }
 
+// RareTerms returns rate terms aggregation results.
+// See: https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-bucket-rare-terms-aggregation.html
+func (a Aggregations) RareTerms(name string) (*AggregationBucketKeyItems, bool) {
+	if raw, found := a[name]; found {
+		agg := new(AggregationBucketKeyItems)
+		if raw == nil {
+			return agg, true
+		}
+		if err := json.Unmarshal(raw, agg); err == nil {
+			return agg, true
+		}
+	}
+	return nil, false
+}
+
 // Sampler returns sampler aggregation results.
 // See: https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-aggregations-bucket-sampler-aggregation.html
 func (a Aggregations) Sampler(name string) (*AggregationSingleBucket, bool) {
@@ -537,6 +568,21 @@ func (a Aggregations) GeoBounds(name string) (*AggregationGeoBoundsMetric, bool)
 // GeoHash returns geo-hash aggregation results.
 // https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-aggregations-bucket-geohashgrid-aggregation.html
 func (a Aggregations) GeoHash(name string) (*AggregationBucketKeyItems, bool) {
+	if raw, found := a[name]; found {
+		agg := new(AggregationBucketKeyItems)
+		if raw == nil {
+			return agg, true
+		}
+		if err := json.Unmarshal(raw, agg); err == nil {
+			return agg, true
+		}
+	}
+	return nil, false
+}
+
+// GeoTile returns geo-tile aggregation results.
+// https://www.elastic.co/guide/en/elasticsearch/reference/7.0/search-aggregations-bucket-geotilegrid-aggregation.html
+func (a Aggregations) GeoTile(name string) (*AggregationBucketKeyItems, bool) {
 	if raw, found := a[name]; found {
 		agg := new(AggregationBucketKeyItems)
 		if raw == nil {
@@ -1406,9 +1452,8 @@ func (a *AggregationBucketAdjacencyMatrix) UnmarshalJSON(data []byte) error {
 type AggregationBucketHistogramItems struct {
 	Aggregations
 
-	Buckets  []*AggregationBucketHistogramItem //`json:"buckets"`
-	Interval interface{}                       // `json:"interval"` // can be numeric or a string
-	Meta     map[string]interface{}            // `json:"meta,omitempty"`
+	Buckets []*AggregationBucketHistogramItem // `json:"buckets"`
+	Meta    map[string]interface{}            // `json:"meta,omitempty"`
 }
 
 // UnmarshalJSON decodes JSON data and initializes an AggregationBucketHistogramItems structure.
@@ -1419,9 +1464,6 @@ func (a *AggregationBucketHistogramItems) UnmarshalJSON(data []byte) error {
 	}
 	if v, ok := aggs["buckets"]; ok && v != nil {
 		json.Unmarshal(v, &a.Buckets)
-	}
-	if v, ok := aggs["interval"]; ok && v != nil {
-		json.Unmarshal(v, &a.Interval)
 	}
 	if v, ok := aggs["meta"]; ok && v != nil {
 		json.Unmarshal(v, &a.Meta)

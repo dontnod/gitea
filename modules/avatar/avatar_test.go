@@ -13,17 +13,22 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_RandomImage(t *testing.T) {
-	_, err := RandomImage([]byte("gogs@local"))
-	assert.NoError(t, err)
-
-	_, err = RandomImageSize(0, []byte("gogs@local"))
+func Test_RandomImageSize(t *testing.T) {
+	_, err := RandomImageSize(0, []byte("gitea@local"))
 	assert.Error(t, err)
+
+	_, err = RandomImageSize(64, []byte("gitea@local"))
+	assert.NoError(t, err)
+}
+
+func Test_RandomImage(t *testing.T) {
+	_, err := RandomImage([]byte("gitea@local"))
+	assert.NoError(t, err)
 }
 
 func Test_PrepareWithPNG(t *testing.T) {
-	setting.AvatarMaxWidth = 4096
-	setting.AvatarMaxHeight = 4096
+	setting.Avatar.MaxWidth = 4096
+	setting.Avatar.MaxHeight = 4096
 
 	data, err := ioutil.ReadFile("testdata/avatar.png")
 	assert.NoError(t, err)
@@ -36,8 +41,8 @@ func Test_PrepareWithPNG(t *testing.T) {
 }
 
 func Test_PrepareWithJPEG(t *testing.T) {
-	setting.AvatarMaxWidth = 4096
-	setting.AvatarMaxHeight = 4096
+	setting.Avatar.MaxWidth = 4096
+	setting.Avatar.MaxHeight = 4096
 
 	data, err := ioutil.ReadFile("testdata/avatar.jpeg")
 	assert.NoError(t, err)
@@ -50,15 +55,15 @@ func Test_PrepareWithJPEG(t *testing.T) {
 }
 
 func Test_PrepareWithInvalidImage(t *testing.T) {
-	setting.AvatarMaxWidth = 5
-	setting.AvatarMaxHeight = 5
+	setting.Avatar.MaxWidth = 5
+	setting.Avatar.MaxHeight = 5
 
 	_, err := Prepare([]byte{})
 	assert.EqualError(t, err, "DecodeConfig: image: unknown format")
 }
 func Test_PrepareWithInvalidImageSize(t *testing.T) {
-	setting.AvatarMaxWidth = 5
-	setting.AvatarMaxHeight = 5
+	setting.Avatar.MaxWidth = 5
+	setting.Avatar.MaxHeight = 5
 
 	data, err := ioutil.ReadFile("testdata/avatar.png")
 	assert.NoError(t, err)

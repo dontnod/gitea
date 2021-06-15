@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 )
 
@@ -120,7 +121,7 @@ func (s *PingService) HttpHeadOnly(httpHeadOnly bool) *PingService {
 // server, and an error.
 func (s *PingService) Do(ctx context.Context) (*PingResult, int, error) {
 	s.client.mu.RLock()
-	basicAuth := s.client.basicAuth
+	basicAuth := s.client.basicAuthUsername != "" || s.client.basicAuthPassword != ""
 	basicAuthUsername := s.client.basicAuthUsername
 	basicAuthPassword := s.client.basicAuthPassword
 	defaultHeaders := s.client.headers
@@ -160,11 +161,9 @@ func (s *PingService) Do(ctx context.Context) (*PingResult, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	if len(s.headers) > 0 {
-		for key, values := range s.headers {
-			for _, v := range values {
-				req.Header.Add(key, v)
-			}
+	for key, values := range s.headers {
+		for _, v := range values {
+			req.Header.Add(key, v)
 		}
 	}
 	if len(defaultHeaders) > 0 {
@@ -177,6 +176,10 @@ func (s *PingService) Do(ctx context.Context) (*PingResult, int, error) {
 
 	if basicAuth {
 		req.SetBasicAuth(basicAuthUsername, basicAuthPassword)
+	}
+
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Add("User-Agent", "elastic/"+Version+" ("+runtime.GOOS+"-"+runtime.GOARCH+")")
 	}
 
 	res, err := s.client.c.Do((*http.Request)(req).WithContext(ctx))

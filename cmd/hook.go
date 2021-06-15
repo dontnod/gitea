@@ -166,7 +166,7 @@ Gitea or set your environment appropriately.`, "")
 	}
 
 	// the environment setted on serv command
-	isWiki := (os.Getenv(models.EnvRepoIsWiki) == "true")
+	isWiki := os.Getenv(models.EnvRepoIsWiki) == "true"
 	username := os.Getenv(models.EnvRepoUsername)
 	reponame := os.Getenv(models.EnvRepoName)
 	userID, _ := strconv.ParseInt(os.Getenv(models.EnvPusherID), 10, 64)
@@ -285,6 +285,12 @@ func runHookUpdate(c *cli.Context) error {
 }
 
 func runHookPostReceive(c *cli.Context) error {
+	// First of all run update-server-info no matter what
+	if _, err := git.NewCommand("update-server-info").Run(); err != nil {
+		return fmt.Errorf("Failed to call 'git update-server-info': %v", err)
+	}
+
+	// Now if we're an internal don't do anything else
 	if os.Getenv(models.EnvIsInternal) == "true" {
 		return nil
 	}
@@ -316,7 +322,7 @@ Gitea or set your environment appropriately.`, "")
 
 	// the environment setted on serv command
 	repoUser := os.Getenv(models.EnvRepoUsername)
-	isWiki := (os.Getenv(models.EnvRepoIsWiki) == "true")
+	isWiki := os.Getenv(models.EnvRepoIsWiki) == "true"
 	repoName := os.Getenv(models.EnvRepoName)
 	pusherID, _ := strconv.ParseInt(os.Getenv(models.EnvPusherID), 10, 64)
 	pusherName := os.Getenv(models.EnvPusherName)

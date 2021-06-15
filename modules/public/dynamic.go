@@ -7,10 +7,17 @@
 package public
 
 import (
-	"gitea.com/macaron/macaron"
+	"io"
+	"net/http"
+	"os"
+	"time"
 )
 
-// Static implements the macaron static handler for serving assets.
-func Static(opts *Options) macaron.Handler {
-	return opts.staticHandler(opts.Directory)
+func fileSystem(dir string) http.FileSystem {
+	return http.Dir(dir)
+}
+
+// serveContent serve http content
+func serveContent(w http.ResponseWriter, req *http.Request, fi os.FileInfo, modtime time.Time, content io.ReadSeeker) {
+	http.ServeContent(w, req, fi.Name(), modtime, content)
 }

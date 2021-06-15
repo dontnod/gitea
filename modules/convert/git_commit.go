@@ -28,8 +28,9 @@ func ToCommitUser(sig *git.Signature) *api.CommitUser {
 // ToCommitMeta convert a git.Tag to an api.CommitMeta
 func ToCommitMeta(repo *models.Repository, tag *git.Tag) *api.CommitMeta {
 	return &api.CommitMeta{
-		SHA: tag.Object.String(),
-		URL: util.URLJoin(repo.APIURL(), "git/commits", tag.ID.String()),
+		SHA:     tag.Object.String(),
+		URL:     util.URLJoin(repo.APIURL(), "git/commits", tag.ID.String()),
+		Created: tag.Tagger.When,
 	}
 }
 
@@ -85,13 +86,13 @@ func ToCommit(repo *models.Repository, commit *git.Commit, userCache map[string]
 	}
 
 	if ok {
-		apiAuthor = cacheAuthor.APIFormat()
+		apiAuthor = ToUser(cacheAuthor, nil)
 	} else {
 		author, err := models.GetUserByEmail(commit.Author.Email)
 		if err != nil && !models.IsErrUserNotExist(err) {
 			return nil, err
 		} else if err == nil {
-			apiAuthor = author.APIFormat()
+			apiAuthor = ToUser(author, nil)
 			if userCache != nil {
 				userCache[commit.Author.Email] = author
 			}
@@ -107,13 +108,13 @@ func ToCommit(repo *models.Repository, commit *git.Commit, userCache map[string]
 	}
 
 	if ok {
-		apiCommitter = cacheCommitter.APIFormat()
+		apiCommitter = ToUser(cacheCommitter, nil)
 	} else {
 		committer, err := models.GetUserByEmail(commit.Committer.Email)
 		if err != nil && !models.IsErrUserNotExist(err) {
 			return nil, err
 		} else if err == nil {
-			apiCommitter = committer.APIFormat()
+			apiCommitter = ToUser(committer, nil)
 			if userCache != nil {
 				userCache[commit.Committer.Email] = committer
 			}
@@ -135,12 +136,12 @@ func ToCommit(repo *models.Repository, commit *git.Commit, userCache map[string]
 	if err != nil {
 		return nil, err
 	}
-	affectedFiles := append(fileStatus.Added, fileStatus.Removed...)
-	affectedFiles = append(affectedFiles, fileStatus.Modified...)
-	affectedFileList := make([]*api.CommitAffectedFiles, len(affectedFiles))
-	for i := 0; i < len(affectedFiles); i++ {
-		affectedFileList[i] = &api.CommitAffectedFiles{
-			Filename: affectedFiles[i],
+	affectedFileList := make([]*api.CommitAffectedFiles, 0, len(fileStatus.Added)+len(fileStatus.Removed)+len(fileStatus.Modified))
+	for _, files := range [][]string{fileStatus.Added, fileStatus.Removed, fileStatus.Modified} {
+		for _, filename := range files {
+			affectedFileList = append(affectedFileList, &api.CommitAffectedFiles{
+				Filename: filename,
+			})
 		}
 	}
 

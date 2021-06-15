@@ -67,6 +67,16 @@ func registerRewriteAllPublicKeys() {
 	})
 }
 
+func registerRewriteAllPrincipalKeys() {
+	RegisterTaskFatal("resync_all_sshprincipals", &BaseConfig{
+		Enabled:    false,
+		RunAtStart: false,
+		Schedule:   "@every 72h",
+	}, func(_ context.Context, _ *models.User, _ Config) error {
+		return models.RewriteAllPrincipalKeys()
+	})
+}
+
 func registerRepositoryUpdateHook() {
 	RegisterTaskFatal("resync_all_hooks", &BaseConfig{
 		Enabled:    false,
@@ -107,13 +117,29 @@ func registerRemoveRandomAvatars() {
 	})
 }
 
+func registerDeleteOldActions() {
+	RegisterTaskFatal("delete_old_actions", &OlderThanConfig{
+		BaseConfig: BaseConfig{
+			Enabled:    false,
+			RunAtStart: false,
+			Schedule:   "@every 168h",
+		},
+		OlderThan: 365 * 24 * time.Hour,
+	}, func(ctx context.Context, _ *models.User, config Config) error {
+		olderThanConfig := config.(*OlderThanConfig)
+		return models.DeleteOldActions(olderThanConfig.OlderThan)
+	})
+}
+
 func initExtendedTasks() {
 	registerDeleteInactiveUsers()
 	registerDeleteRepositoryArchives()
 	registerGarbageCollectRepositories()
 	registerRewriteAllPublicKeys()
+	registerRewriteAllPrincipalKeys()
 	registerRepositoryUpdateHook()
 	registerReinitMissingRepositories()
 	registerDeleteMissingRepositories()
 	registerRemoveRandomAvatars()
+	registerDeleteOldActions()
 }

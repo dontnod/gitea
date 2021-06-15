@@ -28,7 +28,7 @@ func easyjson9de0fcbfDecodeGithubComOlivereElasticV7(in *jlexer.Lexer, out *bulk
 	}
 	in.Delim('{')
 	for !in.IsDelim('}') {
-		key := in.UnsafeString()
+		key := in.UnsafeFieldName(false)
 		in.WantColon()
 		if in.IsNull() {
 			in.Skip()
@@ -242,11 +242,7 @@ func easyjson9de0fcbfDecodeGithubComOlivereElasticV71(in *jlexer.Lexer, out *bul
 		in.Skip()
 	} else {
 		in.Delim('{')
-		if !in.IsDelim('}') {
-			*out = make(bulkIndexRequestCommand)
-		} else {
-			*out = nil
-		}
+		*out = make(bulkIndexRequestCommand)
 		for !in.IsDelim('}') {
 			key := string(in.String())
 			in.WantColon()

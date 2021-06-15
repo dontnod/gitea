@@ -5,10 +5,9 @@
 Elastic is an [Elasticsearch](http://www.elasticsearch.org/) client for the
 [Go](http://www.golang.org/) programming language.
 
-[![Build Status](https://travis-ci.org/olivere/elastic.svg?branch=release-branch.v6)](https://travis-ci.org/olivere/elastic)
-[![Godoc](http://img.shields.io/badge/godoc-reference-blue.svg?style=flat)](http://godoc.org/github.com/olivere/elastic)
+[![Build Status](https://github.com/olivere/elastic/workflows/Test/badge.svg)](https://github.com/olivere/elastic/actions)
+[![Godoc](http://img.shields.io/badge/godoc-reference-blue.svg?style=flat)](https://pkg.go.dev/github.com/olivere/elastic/v7?tab=doc)
 [![license](http://img.shields.io/badge/license-MIT-red.svg?style=flat)](https://raw.githubusercontent.com/olivere/elastic/master/LICENSE)
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Folivere%2Felastic.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Folivere%2Felastic?ref=badge_shield)
 
 See the [wiki](https://github.com/olivere/elastic/wiki) for additional information about Elastic.
 
@@ -107,11 +106,9 @@ to rewrite your application big time. More often than not it's renaming APIs
 and adding/removing features so that Elastic is in sync with Elasticsearch.
 
 Elastic has been used in production starting with Elasticsearch 0.90 up to recent 7.x
-versions. Furthermore, we use [Travis CI](https://travis-ci.org/)
-to test Elastic with the most recent versions of Elasticsearch and Go.
-See the [.travis.yml](https://github.com/olivere/elastic/blob/master/.travis.yml)
-file for the exact matrix and [Travis](https://travis-ci.org/olivere/elastic)
-for the results.
+versions.
+We recently switched to [GitHub Actions for testing](https://github.com/olivere/elastic/actions).
+Before that, we used [Travis CI](https://travis-ci.org/olivere/elastic) successfully for years).
 
 Elasticsearch has quite a few features. Most of them are implemented
 by Elastic. I add features and APIs as required. It's straightforward
@@ -181,59 +178,74 @@ Here are a few tips on how to get used to Elastic:
 
 - Metrics Aggregations
   - [x] Avg
+  - [ ] Boxplot (X-pack)
   - [x] Cardinality
   - [x] Extended Stats
   - [x] Geo Bounds
   - [x] Geo Centroid
+  - [x] Matrix stats
   - [x] Max
+  - [x] Median absolute deviation
   - [x] Min
-  - [x] Percentiles
   - [x] Percentile Ranks
+  - [x] Percentiles
+  - [ ] Rate (X-pack)
   - [ ] Scripted Metric
   - [x] Stats
+  - [ ] String stats (X-pack)
   - [x] Sum
+  - [ ] T-test (X-pack)
   - [x] Top Hits
+  - [ ] Top metrics (X-pack)
   - [x] Value Count
+  - [x] Weighted avg
 - Bucket Aggregations
   - [x] Adjacency Matrix
-  - [x] Children
   - [x] Auto-interval Date Histogram
+  - [x] Children
+  - [x] Composite
   - [x] Date Histogram
   - [x] Date Range
   - [x] Diversified Sampler
   - [x] Filter
   - [x] Filters
   - [x] Geo Distance
-  - [ ] GeoHash Grid
+  - [x] Geohash Grid
+  - [x] Geotile grid
   - [x] Global
   - [x] Histogram
   - [x] IP Range
   - [x] Missing
   - [x] Nested
+  - [ ] Parent
   - [x] Range
+  - [ ] Rare terms
   - [x] Reverse Nested
   - [x] Sampler
   - [x] Significant Terms
   - [x] Significant Text
   - [x] Terms
-  - [x] Composite
+  - [ ] Variable width histogram
 - Pipeline Aggregations
   - [x] Avg Bucket
-  - [x] Derivative
-  - [x] Max Bucket
-  - [x] Min Bucket
-  - [x] Sum Bucket
-  - [x] Stats Bucket
-  - [ ] Extended Stats Bucket
-  - [x] Percentiles Bucket
-  - [x] Moving Average
-  - [x] Cumulative Sum
   - [x] Bucket Script
   - [x] Bucket Selector
   - [x] Bucket Sort
+  - [ ] Cumulative cardinality (X-pack)
+  - [x] Cumulative Sum
+  - [x] Derivative
+  - [ ] Extended Stats Bucket
+  - [ ] Inference bucket (X-pack)
+  - [x] Max Bucket
+  - [x] Min Bucket
+  - [x] Moving Average
+  - [x] Moving function
+  - [ ] Moving percentiles (X-pack)
+  - [ ] Normalize (X-pack)
+  - [x] Percentiles Bucket
   - [x] Serial Differencing
-- [x] Matrix Aggregations
-  - [x] Matrix Stats
+  - [x] Stats Bucket
+  - [x] Sum Bucket
 - [x] Aggregation Metadata
 
 ### Indices APIs
@@ -259,7 +271,7 @@ Here are a few tips on how to get used to Elastic:
 - [x] Indices Segments
 - [ ] Indices Recovery
 - [ ] Indices Shard Stores
-- [ ] Clear Cache
+- [x] Clear Cache
 - [x] Flush
   - [x] Synced Flush
 - [x] Refresh
@@ -362,10 +374,10 @@ Here are a few tips on how to get used to Elastic:
   - [x] Script Score Query
   - [x] Percolate Query
 - Span queries
-  - [ ] Span Term Query
+  - [x] Span Term Query
   - [ ] Span Multi Term Query
-  - [ ] Span First Query
-  - [ ] Span Near Query
+  - [x] Span First Query
+  - [x] Span Near Query
   - [ ] Span Or Query
   - [ ] Span Not Query
   - [ ] Span Containing Query
@@ -427,6 +439,3 @@ by Joshua Tacoma,
 
 MIT-LICENSE. See [LICENSE](http://olivere.mit-license.org/)
 or the LICENSE file provided in the repository for details.
-
-
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Folivere%2Felastic.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Folivere%2Felastic?ref=badge_large)
